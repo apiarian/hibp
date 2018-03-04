@@ -39,80 +39,104 @@ Exits with the status code 2 if a password was found to be compromised.`)
 
 	client := hibp.NewClient()
 
+	var (
+		pwned bool
+		err   error
+	)
 	if stdin {
-		scanner := bufio.NewScanner(os.Stdin)
-
-		var pwned bool
-		for scanner.Scan() {
-			if !pwned {
-				// We scan all of STDIN up to EOF, but we don't actually check
-				// passwords once we've found one that is compromised.
-
-				p, err := client.Pwned.Compromised(scanner.Text())
-				if err != nil {
-					fmt.Printf("failed to check password: %v\n", err)
-					os.Exit(1)
-				}
-				if p {
-					pwned = true
-				}
-			}
+		pwned, err = checkStdin(client)
+		if err != nil {
+			fmt.Println(err)
 		}
-		if err := scanner.Err(); err != nil {
-			fmt.Printf("failed to stand STDIN: %v\n", err)
+	} else {
+		pwned, err = checkLines(client, show, one)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+
+	if pwned {
+		os.Exit(2)
+	} else {
+		if err != nil {
 			os.Exit(1)
 		}
 
-		if pwned {
-			fmt.Println("AT LEAST ONE PASSWORD IS COMPROMISED")
-			os.Exit(2)
-		} else {
-			fmt.Println("no compromised passwords found")
-			os.Exit(0)
-		}
+		os.Exit(0)
+	}
+}
 
-	} else {
-		var pwned bool
-		for {
-			var (
-				line string
-				err  error
-			)
-			if show {
-				line, err = readLine("password: ")
-			} else {
-				line, err = readSecretLine("password: ")
-			}
+func checkStdin(client *hibp.Client) (bool, error) {
+	scanner := bufio.NewScanner(os.Stdin)
+
+	var pwned bool
+	for scanner.Scan() {
+		if !pwned {
+			// We scan all of STDIN up to EOF, but we don't actually check
+			// passwords once we've found one that is compromised.
+
+			p, err := client.Pwned.Compromised(scanner.Text())
 			if err != nil {
-				fmt.Printf("failed to read password: %v\n", err)
-				os.Exit(1)
+				return pwned, fmt.Errorf("failed to check password: %v", err)
 			}
-			if line == "" {
-				break
-			}
-
-			p, err := client.Pwned.Compromised(line)
-			if err != nil {
-				fmt.Printf("failed to check password: %v\n", err)
-			}
-
 			if p {
 				pwned = true
 			}
-
-			if p {
-				fmt.Print("THAT PASSWORD IS COMPROMISED\n")
-			} else {
-				fmt.Print("that password is not compromised\n")
-			}
-		}
-
-		if pwned {
-			os.Exit(2)
-		} else {
-			os.Exit(0)
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return pwned, fmt.Errorf("failed to scan STDIN: %v", err)
+	}
+
+	if pwned {
+		fmt.Println("AT LEAST ONE PASSWORD IS COMPROMISED")
+	} else {
+		fmt.Println("none of the passwords are compromised")
+	}
+
+	return pwned, nil
+}
+
+func checkLines(client *hibp.Client, show, one bool) (bool, error) {
+	var pwned bool
+	for {
+		var (
+			line string
+			err  error
+		)
+		if show {
+			line, err = readLine("password (blank to exit): ")
+		} else {
+			line, err = readSecretLine("password (blank to exit): ")
+		}
+		if err != nil {
+			return pwned, fmt.Errorf("failed to read password: %v", err)
+		}
+		if line == "" {
+			break
+		}
+
+		p, err := client.Pwned.Compromised(line)
+		if err != nil {
+			return pwned, fmt.Errorf("failed to check password: %v", err)
+		}
+
+		if p {
+			pwned = true
+		}
+
+		if p {
+			fmt.Println("THAT PASSWORD IS COMPROMISED")
+		} else {
+			fmt.Println("that password is not compromised")
+		}
+
+		if one {
+			break
+		}
+	}
+
+	return pwned, nil
 }
 
 func readLine(prompt string) (string, error) {
