@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"syscall"
@@ -18,10 +19,12 @@ func main() {
 		help  bool
 		show  bool
 		stdin bool
+		one   bool
 	)
 
 	flag.BoolVar(&help, "help", false, "Show help and exit.")
 	flag.BoolVar(&show, "show", false, "Do not hide the password on input (default false).")
+	flag.BoolVar(&one, "one", false, "Check a single password in interactive mode (default false).")
 	flag.BoolVar(&stdin, "stdin", false, "Read passwords from STDIN instead of a prompt, one password per line, detects if *any* password is compromised.")
 
 	flag.Parse()
@@ -61,7 +64,7 @@ Exits with the status code 2 if a password was found to be compromised.`)
 		}
 
 		if pwned {
-			fmt.Println("at least one password is comporomised")
+			fmt.Println("AT LEAST ONE PASSWORD IS COMPROMISED")
 			os.Exit(2)
 		} else {
 			fmt.Println("no compromised passwords found")
@@ -69,30 +72,44 @@ Exits with the status code 2 if a password was found to be compromised.`)
 		}
 
 	} else {
-		var (
-			line string
-			err  error
-		)
-		if show {
-			line, err = readLine("password: ")
-		} else {
-			line, err = readSecretLine("password: ")
-		}
-		if err != nil {
-			fmt.Printf("failed to read password: %v\n", err)
-			os.Exit(1)
-		}
+		var pwned bool
+		for {
+			var (
+				line string
+				err  error
+			)
+			if show {
+				line, err = readLine("password: ")
+			} else {
+				line, err = readSecretLine("password: ")
+			}
+			if err != nil {
+				fmt.Printf("failed to read password: %v\n", err)
+				os.Exit(1)
+			}
+			if line == "" {
+				break
+			}
 
-		pwned, err := client.Pwned.Compromised(line)
-		if err != nil {
-			fmt.Printf("failed to check password: %v\n", err)
+			p, err := client.Pwned.Compromised(line)
+			if err != nil {
+				fmt.Printf("failed to check password: %v\n", err)
+			}
+
+			if p {
+				pwned = true
+			}
+
+			if p {
+				fmt.Print("THAT PASSWORD IS COMPROMISED\n")
+			} else {
+				fmt.Print("that password is not compromised\n")
+			}
 		}
 
 		if pwned {
-			fmt.Print("that password is compromised\n")
 			os.Exit(2)
 		} else {
-			fmt.Print("that password is not compromised\n")
 			os.Exit(0)
 		}
 	}
@@ -103,6 +120,10 @@ func readLine(prompt string) (string, error) {
 
 	s, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if err != nil {
+		if err == io.EOF {
+			return "", nil
+		}
+
 		return "", err
 	}
 
